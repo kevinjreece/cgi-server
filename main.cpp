@@ -24,7 +24,7 @@
 #define QUEUE_SIZE          5
 
 ConcurrentQueue con_queue;
-mutex mut;
+std::mutex mut;
 
 void serve(int id, string path) {
     while (true) {
@@ -35,8 +35,6 @@ void serve(int id, string path) {
         cout << "Socket number " << id << " received a connection.\n";
         
         socket->processRequest();
-        
-        socket->sendResponse();
         
         printf("\nClosing the socket");
         /* close socket */
@@ -73,7 +71,7 @@ int main(int argc, char* argv[])
     std::vector<std::thread> threads;
 
     for (int i = 0; i < num_threads; i++) {
-        threads.push_back(thread(serve, i, path));
+        threads.push_back(std::thread(serve, i, path));
         usleep(30);
     }
 

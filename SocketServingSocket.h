@@ -24,8 +24,6 @@
 
 #include "ServerSocket.h"
 
-using namespace std;
-
 #define SOCKET_ERROR        -1
 #define BUFFER_SIZE         100
 #define HOST_NAME_SIZE      255

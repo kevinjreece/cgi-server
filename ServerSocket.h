@@ -23,27 +23,42 @@
 #include <string>
 #include <sstream>
 #include <fstream>
-
-using namespace std;
+#include <map>
+#include <vector>
 
 #define MAX_MSG_SZ 1024
-#define TEXT        "text/plain"
-#define HTML        "text/html"
-#define JPG         "image/jpg"
-#define GIF         "image/gif"
-#define DIRECTORY         "DIRECTORY"
-#define UNKNOWN     "UNKOWN"
-#define ERR         "ERR"
+// #define TEXT        "text/plain"
+// #define HTML        "text/html"
+// #define JPG         "image/jpg"
+// #define GIF         "image/gif"
+// #define DIRECTORY   "DIRECTORY"
+// #define UNKNOWN     "UNKOWN"
+// #define ERR         "ERR"
+// #define CGI         "text/cgi"
+
+using std::string;
+using std::cout;
+using std::vector;
+
+enum FileType { CGI, TEXT, HTML, JPG, GIF, DIRECTORY, ERR, UNKNOWN };
 
 class ServerSocket {
 private:
     int _socket;
     string _path;
-    string _type;
+    FileType _type;
     string _content;
     string _status;
     string _directory;
     string _home_dir;
+    std::map<FileType, string> _type_map;
+
+    void initMap() {
+        _type_map[TEXT] = "text/plain";
+        _type_map[HTML] = "text/html";
+        _type_map[JPG] = "image/jpg";
+        _type_map[GIF] = "image/gif";
+    }
     
     // Determine if the character is whitespace
     bool isWhitespace(char c) {
@@ -175,11 +190,12 @@ public:
     ServerSocket(int socket, string home_dir) {
         _socket = socket;
         _home_dir = home_dir;
+        initMap();
     }
     
-    void sendResponse() {
+    void sendStandardResponse() {
         string message = _status +
-                            "Content-Type: " + _type + "\r\n\r\n" +
+                            "Content-Type: " + _type_map[_type] + "\r\n\r\n" +
                             _content + "\r\n";
         write(_socket, message.c_str(), message.length());
         return;
@@ -217,6 +233,9 @@ public:
         else if (ext == "gif") {
             _type = GIF;
         }
+        else if (ext == "cgi" || ext == "pl") {
+            _type = CGI;
+        }
         else if (ext == "") {
             _type = DIRECTORY;
         }
@@ -228,8 +247,6 @@ public:
     }
     
     void parseFirstLine(string start_line) {
-        
-        cout << "\nFirst line: " + start_line + "\n";
         
         if(!strstr(start_line.c_str(), "GET")) {
             _type = ERR;
@@ -246,14 +263,14 @@ public:
         
         // Find and set content type
         setContentType(ext);
-        cout << "Content Type: \"" + _type + "\"\n";
+        cout << "Content Type: \"" + _type_map[_type] + "\"\n";
         return;
     }
     
     void processDirectory() {
         DIR *dirp;
         struct dirent *dp;
-        stringstream listing;
+        std::stringstream listing;
         
         listing << "<html>\n<body>\n<ul>\n";
         
@@ -274,24 +291,24 @@ public:
             _directory = _path;
             _path += "/index.html";
             _status = "HTTP/1.0 200 OK\r\n";
-            ifstream index_ifs(_path.c_str());
+            std::ifstream index_ifs(_path.c_str());
             if (!index_ifs) {// Does the directory have an index.html file?
                 processDirectory();
                 return;
             }
         }
         
-        ifstream ifs(_path.c_str());
+        std::ifstream ifs(_path.c_str());
         if (ifs) {
             _status = "HTTP/1.0 200 OK\r\n";
-            string str((istreambuf_iterator<char>(ifs)), istreambuf_iterator<char>());
+            string str((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
             _content = str;
         }
         else {
             _status = "HTTP/1.0 404 Not Found\r\n";
             _type = HTML;
-            ifstream not_found_ifs("notFound.html");
-            string str((istreambuf_iterator<char>(not_found_ifs)), istreambuf_iterator<char>());
+            std::ifstream not_found_ifs("notFound.html");
+            string str((std::istreambuf_iterator<char>(not_found_ifs)), std::istreambuf_iterator<char>());
             _content = str;
         }
     }
@@ -315,9 +332,12 @@ public:
         if (_type == ERR) {
             return;
         }
+        else if (_type == CGI) {
+            runCGI();
+            return;
+        }
         
         processPath();
-        
         
         // Read the header lines
         GetHeaderLines(header_lines, _socket, false);
@@ -336,7 +356,7 @@ public:
             }
         }
         
-        
+        sendStandardResponse();
     }
     
     bool closeSocket() {
@@ -346,6 +366,27 @@ public:
         else {
             return true;
         }
+    }
+
+    void runCGI() {
+
+        pid_t pID = fork();
+        if (pID == 0) {
+            char* argv_to_child[2];
+            char* env_to_child[2];
+            argv_to_child[0] = (char *)"foo";
+            argv_to_child[1] = NULL;
+            env_to_child[0] = (char *)"bar";
+            env_to_child[1] = NULL;
+            
+            execve(_path.c_str(), argv_to_child, env_to_child);
+        }
+        else {
+            int stat;
+            int err;
+            err = wait(&stat);
+        }
+
     }
     
 };

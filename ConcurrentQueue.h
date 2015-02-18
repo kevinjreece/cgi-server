@@ -13,12 +13,10 @@
 #include <mutex>
 #include "ServerSocket.h"
 
-using namespace std;
-
 class ConcurrentQueue {
 private:
-    queue<ServerSocket*> _queue;
-    mutex _mutex;
+    std::queue<ServerSocket*> _queue;
+    std::mutex _mutex;
     
     
 public:
