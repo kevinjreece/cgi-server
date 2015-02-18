@@ -255,12 +255,16 @@ public:
     
     void parseFirstLine(string start_line) {
         
-        if(!strstr(start_line.c_str(), GET) && !strstr(start_line.c_str(), POST)) {
+        if (strstr(start_line.c_str(), GET)) {
+            _method = GET;
+        }
+        else if (strstr(start_line.c_str(), POST)) {
+            _method = POST;
+        }
+        else {
             _type = ERR;
             return;
         }
-        
-
 
         // Find path
         processURI(start_line);
@@ -400,12 +404,27 @@ public:
             close(CGIToServePipefd[0]);    // close the read side of the pipe to the server
             dup2(CGIToServePipefd[1], 1);  // dup the pipe to stdout
 
-            char* argv_to_child[2];
-            char* env_to_child[2];
-            argv_to_child[0] = (char *)"foo";
-            argv_to_child[1] = NULL;
-            env_to_child[0] = (char *)"bar";
-            env_to_child[1] = NULL;
+            vector<char *> header_lines;
+            GetHeaderLines(header_lines, _socket, true);
+            char* argv_to_child[1];
+            char* env_to_child[header_lines.size() + 5];
+
+            string gateway_interface = "GATEWAY_INTERFACE=CGI/1.1";
+            string request_uri = "REQUEST_URI=" + _original_uri;
+            string request_method = "REQUEST_METHOD=" + _method;
+            string query_string = "QUERY_STRING=" + _query_string;
+
+            env_to_child[0] = const_cast<char *>(gateway_interface.c_str());
+            env_to_child[1] = const_cast<char *>(request_uri.c_str());
+            env_to_child[2] = const_cast<char *>(request_method.c_str());
+            env_to_child[3] = const_cast<char *>(query_string.c_str());
+
+            for (int i = 0; i < header_lines.size(); i++) {
+                env_to_child[i + 4] = header_lines[i];
+            }
+            
+            argv_to_child[0] = NULL;
+            env_to_child[header_lines.size() + 4] = NULL;
 
             execve(_path.c_str(), argv_to_child, env_to_child);
         }
