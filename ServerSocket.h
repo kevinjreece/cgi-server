@@ -45,8 +45,10 @@ private:
     string _status;
     string _directory;
     string _home_dir;
-    string _uri;
+    string _filtered_uri;
+    string _original_uri;
     string _method;
+    string _query_string;
     std::map<FileType, string> _type_map;
 
     void initMap() {
@@ -197,8 +199,17 @@ public:
         return;
     }
     
-    string getFileName(string start_line) {
-        return start_line.substr(4, start_line.length() - 13);
+    void processURI(string start_line) {
+        _original_uri = start_line.substr(4, start_line.length() - 13);
+        size_t query_start = _original_uri.find('?');
+        if (query_start != -1) {
+            _filtered_uri = _original_uri.substr(0, query_start);
+            _query_string = _original_uri.substr(query_start + 1, _original_uri.length() - query_start);
+        }
+        else {
+            _filtered_uri = _original_uri;
+            _query_string = "";
+        }
     }
     
     string getExtension(string file_name) {
@@ -249,9 +260,11 @@ public:
             return;
         }
         
+
+
         // Find path
-        _uri = getFileName(start_line);
-        _path = _home_dir + _uri;
+        processURI(start_line);
+        _path = _home_dir + _filtered_uri;
         cout << "File: \"" + _path + "\"\n";
         
         // Find extension type
@@ -271,11 +284,11 @@ public:
         
         listing << "<html>\n<body>\n<ul>\n";
 
-        cout << "\nURI: " << _uri << "\n";
+        cout << "\nURI: " << _filtered_uri << "\n";
         
         dirp = opendir(_directory.c_str());
         while ((dp = readdir(dirp)) != NULL) {
-            listing << "<li><a href=\"" << _uri << dp->d_name << "\">" << dp->d_name << "</a></li>\n";
+            listing << "<li><a href=\"" << _filtered_uri << dp->d_name << "\">" << dp->d_name << "</a></li>\n";
         }
         (void)closedir(dirp);
         
@@ -286,8 +299,8 @@ public:
     
     void processPath() {
         if (_type == DIRECTORY) {// Is the path to a directory?
-            if (_uri.at(_uri.length()-1) != '/') {
-                _uri += '/';
+            if (_filtered_uri.at(_filtered_uri.length()-1) != '/') {
+                _filtered_uri += '/';
                 _path += '/';
             }
 
