@@ -27,14 +27,8 @@
 #include <vector>
 
 #define MAX_MSG_SZ 1024
-// #define TEXT        "text/plain"
-// #define HTML        "text/html"
-// #define JPG         "image/jpg"
-// #define GIF         "image/gif"
-// #define DIRECTORY   "DIRECTORY"
-// #define UNKNOWN     "UNKOWN"
-// #define ERR         "ERR"
-// #define CGI         "text/cgi"
+#define POST       "POST"
+#define GET        "GET"
 
 using std::string;
 using std::cout;
@@ -51,6 +45,8 @@ private:
     string _status;
     string _directory;
     string _home_dir;
+    string _uri;
+    string _method;
     std::map<FileType, string> _type_map;
 
     void initMap() {
@@ -233,7 +229,7 @@ public:
         else if (ext == "gif") {
             _type = GIF;
         }
-        else if (ext == "cgi" || ext == "pl") {
+        else if (ext == "cgi" || ext == "pl" || ext == "py") {
             _type = CGI;
         }
         else if (ext == "") {
@@ -248,13 +244,14 @@ public:
     
     void parseFirstLine(string start_line) {
         
-        if(!strstr(start_line.c_str(), "GET")) {
+        if(!strstr(start_line.c_str(), GET) && !strstr(start_line.c_str(), POST)) {
             _type = ERR;
             return;
         }
         
         // Find path
-        _path = _home_dir + getFileName(start_line);
+        _uri = getFileName(start_line);
+        _path = _home_dir + _uri;
         cout << "File: \"" + _path + "\"\n";
         
         // Find extension type
@@ -273,10 +270,12 @@ public:
         std::stringstream listing;
         
         listing << "<html>\n<body>\n<ul>\n";
+
+        cout << "\nURI: " << _uri << "\n";
         
         dirp = opendir(_directory.c_str());
         while ((dp = readdir(dirp)) != NULL) {
-            listing << "<li><a href=\"" << dp->d_name << "\">" << dp->d_name << "</a></li>\n";
+            listing << "<li><a href=\"" << _uri << dp->d_name << "\">" << dp->d_name << "</a></li>\n";
         }
         (void)closedir(dirp);
         
@@ -287,9 +286,14 @@ public:
     
     void processPath() {
         if (_type == DIRECTORY) {// Is the path to a directory?
+            if (_uri.at(_uri.length()-1) != '/') {
+                _uri += '/';
+                _path += '/';
+            }
+
             _type = HTML;
             _directory = _path;
-            _path += "/index.html";
+            _path += "index.html";
             _status = "HTTP/1.0 200 OK\r\n";
             std::ifstream index_ifs(_path.c_str());
             if (!index_ifs) {// Does the directory have an index.html file?
@@ -370,18 +374,59 @@ public:
 
     void runCGI() {
 
+        char buffer[MAX_MSG_SZ];
+        int ServeToCGIPipefd[2];
+        int CGIToServePipefd[2];
+        pipe(ServeToCGIPipefd);
+        pipe(CGIToServePipefd);
+
         pid_t pID = fork();
         if (pID == 0) {
+            close(ServeToCGIPipefd[1]);    // close the write side of the pipe from the server
+            dup2(ServeToCGIPipefd[0], 0);  // dup the pipe to stdin
+            close(CGIToServePipefd[0]);    // close the read side of the pipe to the server
+            dup2(CGIToServePipefd[1], 1);  // dup the pipe to stdout
+
             char* argv_to_child[2];
             char* env_to_child[2];
             argv_to_child[0] = (char *)"foo";
             argv_to_child[1] = NULL;
             env_to_child[0] = (char *)"bar";
             env_to_child[1] = NULL;
-            
+
             execve(_path.c_str(), argv_to_child, env_to_child);
         }
         else {
+
+            close(ServeToCGIPipefd[0]);  // close the read side of the pipe to the CGI script
+            close(CGIToServePipefd[1]);  // close the write side of the pipe from the CGI script
+
+            if (_method == POST) {// request is POST
+                //get content length from the request headers
+                int amtread = 0;
+                int amt = 0;
+                int contentlength = 0;
+
+                while (amtread < contentlength && (amt = read(_socket, buffer, MAX_MSG_SZ))) {
+                    amtread += amt;
+                    write (ServeToCGIPipefd[1], buffer, amt);
+
+                
+                }
+            }
+
+            _status = "HTTP/1.0 200 OK\r\n";
+
+            write(_socket, _status.c_str(), _status.length());
+            // Read from the CGIToServePipefd[0] until you get an error and write this data to the socket
+            int rval;
+            while((rval = read(CGIToServePipefd[0],buffer,MAX_MSG_SZ)) > 0) {
+                write(_socket,buffer,rval);
+            }
+
+            close(ServeToCGIPipefd[1]); // all done, close the pipe
+            close(CGIToServePipefd[0]); // all done, close the pipe
+
             int stat;
             int err;
             err = wait(&stat);
